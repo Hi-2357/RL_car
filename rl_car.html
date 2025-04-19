@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Drive to the Market Game - Q Learning</title>
+  <style>
+    body { margin: 0; overflow: hidden; background-color: #eef; }
+    canvas { display: block; margin: auto; background: #eef; }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+const gridSize = 40;
+const ACTIONS = [
+  { dx: 0, dy: -1 },
+  { dx: 0, dy: 1 },
+  { dx: -1, dy: 0 },
+  { dx: 1, dy: 0 }
+];
+const alpha = 0.1;
+const gamma = 0.9;
+let epsilon = 0.1;
+let qTable = {}; // Q[state][actionIndex] = value
+
+let agents = Array.from({ length: 10 }, () => ({ x: 40, y: 560, width: 40, height: 40 }));
+let market = { x: 720, y: 80, width: 80, height: 60 };
+let parkingSpot = { x: 720, y: 90, width: 40, height: 20 };
+let track = { x: 40, y: 40, width: 720, height: 520 };
+let autoDrive = true;
+let paused = false;
+
+let walls = [
+  { x: 200, y: 160, width: 400, height: 20 },
+  { x: 200, y: 400, width: 20, height: 150 },
+  { x: 500, y: 260, width: 20, height: 150 }
+];
+
+function checkCollision(rect1, rect2) {
+  return (
+    rect1.x < rect2.x + rect2.width &&
+    rect1.x + rect1.width > rect2.x &&
+    rect1.y < rect2.y + rect2.height &&
+    rect1.y + rect1.height > rect2.y
+  );
+}
+
+function isInsideTrack(rect) {
+  return (
+    rect.x >= track.x &&
+    rect.x + rect.width <= track.x + track.width &&
+    rect.y >= track.y &&
+    rect.y + rect.height <= track.y + track.height
+  );
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === 'p') paused = !paused;
+});
+
+function getState(x, y) {
+  return `${x},${y}`;
+}
+
+function chooseAction(state) {
+  if (!(state in qTable)) qTable[state] = [0, 0, 0, 0];
+  if (Math.random() < epsilon) return Math.floor(Math.random() * ACTIONS.length);
+  return qTable[state].indexOf(Math.max(...qTable[state]));
+}
+
+function updateQ(state, action, reward, nextState) {
+  if (!(nextState in qTable)) qTable[nextState] = [0, 0, 0, 0];
+  qTable[state][action] += alpha * (reward + gamma * Math.max(...qTable[nextState]) - qTable[state][action]);
+}
+
+function update() {
+  if (paused) return;
+  for (let car of agents) {
+    let gridX = Math.round(car.x / gridSize) * gridSize;
+    let gridY = Math.round(car.y / gridSize) * gridSize;
+    let state = getState(gridX, gridY);
+    let actionIndex = chooseAction(state);
+    let action = ACTIONS[actionIndex];
+
+    let newX = gridX + action.dx * gridSize;
+    let newY = gridY + action.dy * gridSize;
+    let newCar = { x: newX, y: newY, width: car.width, height: car.height };
+    let nextState = getState(newX, newY);
+
+    let reward = -1;
+    if (!isInsideTrack(newCar) || walls.some(w => checkCollision(newCar, w))) {
+      reward = -100;
+      newX = 40;
+      newY = 560;
+    } else if (checkCollision(newCar, parkingSpot)) {
+      reward = 100;
+      newX = 40;
+      newY = 560;
+    }
+
+    updateQ(state, actionIndex, reward, nextState);
+    car.x = newX;
+    car.y = newY;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "#888";
+  ctx.fillRect(track.x, track.y, track.width, track.height);
+
+  ctx.fillStyle = "#0f0";
+  ctx.fillRect(parkingSpot.x, parkingSpot.y, parkingSpot.width, parkingSpot.height);
+  ctx.fillStyle = "#000";
+  ctx.fillText("Park", parkingSpot.x + 4, parkingSpot.y + 15);
+
+  ctx.fillStyle = "#555";
+  walls.forEach(w => ctx.fillRect(w.x, w.y, w.width, w.height));
+
+  for (let state in qTable) {
+    const [sx, sy] = state.split(',').map(Number);
+    const bestValue = Math.max(...qTable[state]);
+    const bestAction = qTable[state].indexOf(bestValue);
+    const action = ACTIONS[bestAction];
+    const centerX = sx + gridSize / 2;
+    const centerY = sy + gridSize / 2;
+    const arrowX = centerX + action.dx * 10;
+    const arrowY = centerY + action.dy * 10;
+    const colorStrength = Math.min(255, Math.floor((bestValue + 100) * 2));
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(arrowX, arrowY);
+    ctx.strokeStyle = `rgba(${255 - colorStrength}, ${colorStrength}, 0, 0.6)`;
+    ctx.stroke();
+  }
+
+  agents.forEach(car => {
+    ctx.fillStyle = "#00f";
+    ctx.fillRect(car.x, car.y, car.width, car.height);
+  });
+
+  ctx.fillStyle = "#000";
+  ctx.fillText("[P] Pause / Resume", 10, 20);
+  ctx.fillText("Q-learning AI driving", 10, 40);
+  ctx.fillText("Arrows: Best Q actions (colored)", 10, 60);
+  ctx.fillText("Agents: x" + agents.length, 10, 80);
+}
+
+function gameLoop() {
+  for (let i = 0; i < 5; i++) update(); // train faster
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+</body>
+</html>
+
